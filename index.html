@@ -42,8 +42,9 @@ const PICS=[
   {id:"stomp",  e:"🦶",l:"Frappe pied", c:"#D85A30"},
   {id:"chest",  e:"👕",l:"Poitrine",    c:"#9933AA"},
   {id:"thigh",  e:"🦵",l:"Cuisse",      c:"#BA7517"},
-  {id:"voice",  e:"🎤",l:"Voix",        c:"#D4537E"},
   {id:"silence",e:"🤫",l:"Silence",     c:"#888780"},
+  {id:"voice",  e:"🎤",l:"Voix",        c:"#D4537E"},
+  {id:"text",   e:"T",  l:"Texte",       c:"#4A6FA5"},
   {id:"custom1",e:"⭐",l:"Libre 1",     c:"#639922"},
   {id:"custom2",e:"🔶",l:"Libre 2",     c:"#E24B4A"},
 ];
@@ -77,15 +78,15 @@ function playVoice(g=1){const ac=getAC(),t=ac.currentTime;const o=ac.createOscil
 function playC1(g=1){const ac=getAC(),t=ac.currentTime;const o=ac.createOscillator();o.type="square";o.frequency.setValueAtTime(800,t);o.frequency.exponentialRampToValueAtTime(600,t+.04);const e=ac.createGain();e.gain.setValueAtTime(g*.3,t);e.gain.exponentialRampToValueAtTime(.001,t+.08);o.connect(e);e.connect(ac.destination);o.start(t);o.stop(t+.1);}
 function playC2(g=1){const ac=getAC(),t=ac.currentTime;const s=ac.createBufferSource();s.buffer=noise(ac,.08);const e=ac.createGain();e.gain.setValueAtTime(g*.4,t);e.gain.exponentialRampToValueAtTime(.001,t+.07);const h=ac.createBiquadFilter();h.type="highpass";h.frequency.value=5000;s.connect(h);h.connect(e);e.connect(ac.destination);s.start(t);s.stop(t+.09);}
 function playTick(isPulse,isBar,g=1){const ac=getAC(),t=ac.currentTime;const o=ac.createOscillator();o.type="sine";o.frequency.value=isBar?1200:isPulse?900:600;const e=ac.createGain();e.gain.setValueAtTime(g*(isBar?.5:isPulse?.3:.12),t);e.gain.exponentialRampToValueAtTime(.001,t+.04);o.connect(e);e.connect(ac.destination);o.start(t);o.stop(t+.05);}
-const SFX={clap:playClap,snap:playSnap,stomp:playKick,chest:playChest,thigh:playThigh,voice:playVoice,silence:null,custom1:playC1,custom2:playC2};
+const SFX={clap:playClap,snap:playSnap,stomp:playKick,chest:playChest,thigh:playThigh,voice:playVoice,silence:null,custom1:playC1,custom2:playC2,text:null};
 
 /* ── State ── */
 const S={
   tracks:[{id:1,name:"Mains",color:"#1D9E75"},{id:2,name:"Pieds",color:"#D85A30"},{id:3,name:"Corps",color:"#185FA5"}],
-  cells:{}, tsig:"4/4", level:"debutant", bpm:90,
+  cells:{}, cellTexts:{}, tsig:"4/4", level:"debutant", bpm:90,
   playing:false, beat:0, loop:true, sound:true, metro:true,
-  muted:{}, bars:1, nextId:4, editing:null,
-  dragPic:null, dragCell:null
+  muted:{}, bars:1, nextId:4, editing:null, editingCell:null,
+  dragPic:null, dragCell:null, dragText:undefined
 };
 let animId=null, t0=null, prevBeat=-1;
 
@@ -175,7 +176,7 @@ function render(){
   /* clear */
   const btnClear=mk("button","ibtn");btnClear.title="Réinitialiser";
   btnClear.innerHTML=`<i class="ti ti-trash" style="font-size:14px" aria-hidden="true"></i>`;
-  btnClear.addEventListener("click",()=>{S.cells={};stopPB();render();});
+  btnClear.addEventListener("click",()=>{S.cells={};S.cellTexts={};stopPB();render();});
   tbar.appendChild(btnClear);
   tbar.appendChild(mkDiv());
 
@@ -230,7 +231,13 @@ function render(){
       e.dataTransfer.effectAllowed="copy";
       e.dataTransfer.setData("text/plain",p.id);
     };
-    const eSpan=mk("span");eSpan.style.fontSize="22px";eSpan.textContent=p.e;
+    const eSpan=mk("span");
+    if(p.id==="text"){
+      eSpan.style.cssText="font-size:22px;font-weight:800;color:#4A6FA5;line-height:1;font-family:'DM Sans',system-ui,sans-serif";
+    } else {
+      eSpan.style.fontSize="22px";
+    }
+    eSpan.textContent=p.e;
     const lSpan=mk("span");lSpan.style.cssText="font-size:9px;color:#888780;margin-top:2px;text-align:center;line-height:1.2;pointer-events:none";lSpan.textContent=p.l;
     d.appendChild(eSpan);d.appendChild(lSpan);
     pp.appendChild(d);
@@ -299,9 +306,10 @@ function render(){
     db.addEventListener("click",()=>{
       if(S.tracks.length<=1)return;
       S.tracks=S.tracks.filter(t=>t.id!==track.id);
-      const nc={};
+      const nc={};const nt={};
       Object.keys(S.cells).forEach(k=>{if(!k.startsWith(track.id+"-"))nc[k]=S.cells[k];});
-      S.cells=nc;
+      Object.keys(S.cellTexts).forEach(k=>{if(!k.startsWith(track.id+"-"))nt[k]=S.cellTexts[k];});
+      S.cells=nc;S.cellTexts=nt;
       render();
     });
     lbl.appendChild(db);
@@ -321,16 +329,53 @@ function render(){
 
       if(pic){
         const pd=mk("div");pd.draggable=true;pd.title="Double-clic pour effacer";
-        pd.style.cssText="display:flex;flex-direction:column;align-items:center;cursor:grab;user-select:none;padding:4px";
-        const eSpan=mk("span");eSpan.style.fontSize="24px";eSpan.textContent=pic.e;eSpan.style.pointerEvents="none";
-        pd.appendChild(eSpan);
+        pd.style.cssText="display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:grab;user-select:none;padding:2px;width:100%;height:100%";
+        if(picId==="text"){
+          if(S.editingCell===key){
+            /* mode édition inline */
+            const inp=mk("input");inp.type="text";
+            inp.value=S.cellTexts[key]||"";
+            inp.style.cssText="width:34px;font-size:8px;font-weight:700;color:#4A6FA5;text-align:center;text-transform:uppercase;border:none;border-bottom:1px solid #4A6FA5;background:transparent;outline:none;padding:1px 0;font-family:'DM Sans',system-ui,sans-serif";
+            inp.setAttribute("draggable","false");
+            const commit=()=>{
+              const val=inp.value.toUpperCase();
+              const nt={...S.cellTexts};
+              if(val){nt[key]=val;}else{const nc={...S.cells};delete nc[key];delete nt[key];S.cells=nc;}
+              S.cellTexts=nt;S.editingCell=null;render();
+            };
+            inp.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key==="Escape")e.target.blur();e.stopPropagation();});
+            inp.addEventListener("blur",commit);
+            inp.addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase();});
+            inp.addEventListener("mousedown",e=>e.stopPropagation());
+            inp.addEventListener("click",e=>e.stopPropagation());
+            pd.appendChild(inp);
+            pd.draggable=false;
+            setTimeout(()=>{inp.focus();inp.select();},10);
+          } else {
+            const txt=S.cellTexts[key]||"";
+            const len=txt.length||1;
+            /* taille adaptée pour tenir sur une ligne dans ~36px de large
+               on part de 11px pour 1 car, on réduit progressivement */
+            const fs=len<=2?11:len<=3?10:len<=4?9:len<=5?8:len<=7?7:6;
+            const tSpan=mk("span");tSpan.style.cssText=`font-size:${fs}px;font-weight:700;color:#4A6FA5;text-align:center;line-height:1.1;max-width:36px;pointer-events:none;text-transform:uppercase;white-space:nowrap;overflow:hidden`;tSpan.textContent=txt||"T";
+            pd.appendChild(tSpan);
+          }
+        } else {
+          const eSpan=mk("span");eSpan.style.fontSize="24px";eSpan.textContent=pic.e;eSpan.style.pointerEvents="none";
+          pd.appendChild(eSpan);
+        }
         pd.ondragstart=function(e){
+          if(S.editingCell===key)return;
           S.dragPic=picId;S.dragCell=key;
+          if(picId==="text")S.dragText=S.cellTexts[key]||"";
           e.dataTransfer.effectAllowed="move";
           e.dataTransfer.setData("text/plain",picId);
         };
         pd.addEventListener("dblclick",()=>{
-          const n={...S.cells};delete n[key];S.cells=n;render();
+          if(picId==="text"){S.editingCell=key;render();return;}
+          const n={...S.cells};delete n[key];
+          const nt={...S.cellTexts};delete nt[key];
+          S.cells=n;S.cellTexts=nt;render();
         });
         cell.appendChild(pd);
       } else {
@@ -344,9 +389,30 @@ function render(){
         const pid=e.dataTransfer.getData("text/plain")||S.dragPic;
         if(!pid)return;
         const nc={...S.cells};
-        if(S.dragCell&&S.dragCell!==key)delete nc[S.dragCell];
+        const nt={...S.cellTexts};
+        /* supprimer l'origine si c'est un déplacement */
+        if(S.dragCell&&S.dragCell!==key){
+          delete nc[S.dragCell];
+          if(pid==="text"){delete nt[S.dragCell];}
+        }
+        if(pid==="text"){
+          let finalText;
+          if(S.dragCell){
+            /* déplacement d'une cellule texte existante */
+            finalText=S.dragText||"";
+            nt[key]=finalText;
+          } else {
+            /* nouveau dépôt depuis le panel : activer l'édition inline */
+            nt[key]="";
+            nc[key]=pid;
+            S.cells=nc;S.cellTexts=nt;S.dragPic=null;S.dragCell=null;S.dragText=undefined;
+            S.editingCell=key;
+            render();
+            return;
+          }
+        }
         nc[key]=pid;
-        S.cells=nc;S.dragPic=null;S.dragCell=null;
+        S.cells=nc;S.cellTexts=nt;S.dragPic=null;S.dragCell=null;S.dragText=undefined;
         render();
       };
       row.appendChild(cell);
